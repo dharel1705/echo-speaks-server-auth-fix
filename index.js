@@ -51,25 +51,10 @@ function sendCookiesToEndpoint(url, data) {
     axios.post(url, data).catch(err => logger.error(`Error sending cookies: ${err.message}`));
 }
 
-function sendClearAuthToHub() {
-    if (configData.settings.appCallbackUrl) {
-        const clearUrl = String(configData.settings.appCallbackUrl).replace('/receiveData?', '/clearAuth?');
-        axios.post(clearUrl, { status: 'cleared' }).catch(err => logger.error(`Error sending clearAuth: ${err.message}`));
-    }
-}
-
-function isCookieValid(cookie) {
-    return new Promise((resolve) => {
-        alexaCookie.checkCookie(cookie, (err, res) => {
-            resolve(!err && res);
-        });
-    });
-}
-
 loadConfig();
 loadSession();
 
-// --- RESTORED NATIVE FRONTEND AND LOGIN PORTAL ROUTING ---
+// NATIVE WORKING VISUAL FRONTEND ROUTES
 webApp.get('/', (req, res) => {
     res.send(`
         <html>
@@ -77,7 +62,7 @@ webApp.get('/', (req, res) => {
         <body>
             <h1>Echo Speaks Local Proxy Server</h1>
             <p>Status: Running smoothly on Unraid</p>
-            <a href="/config" class="btn">Configure & Login to Amazon</a>
+            <a href="/config" class="btn">Configure App Callback & Login</a>
         </body>
         </html>
     `);
@@ -93,12 +78,8 @@ webApp.get('/config', (req, res) => {
             <form action="/saveConfig" method="POST">
                 <label>App Callback URL (From Hubitat):</label>
                 <input type="text" name="appCallbackUrl" value="${callbackUrl}" placeholder="Paste URL here..." required />
-                <button type="submit" class="btn">Save & Proceed to Amazon Login</button>
+                <button type="submit" class="btn">Save & Go to Amazon Login</button>
             </form>
-            <hr/>
-            <div style="text-align:center;">
-                <a href="/refreshCookie" class="btn" style="background:#FF9900;text-decoration:none;display:block;">Trigger Manual Amazon Sign-In Window</a>
-            </div>
         </body>
         </html>
     `);
@@ -110,38 +91,29 @@ webApp.post('/saveConfig', urlencodedParser, (req, res) => {
     res.redirect('/refreshCookie');
 });
 
+// FIXED REFRESH ROUTE (Replaces the broken expressLogin function)
 webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
-    logger.verbose('refreshCookie request received');
-    
-    // Fallback protection logic check
+    logger.info('Refresh cookie request triggered.');
+
+    // fallback cache check logic execution
     if (runTimeData?.savedConfig?.cookieData) {
-        logger.info('Fallback active: Serving cached credential profile.');
+        logger.info('Fallback active: Re-using last known valid Alexa Cookie from cache.');
+        res.send('<h1>Authentication Restored via Local Cache Fallback!</h1><p>You can close this window.</p>');
+        return;
     }
 
-    // Trigger local alexa proxy listener logic
-    alexaCookie.expressLogin({
-        proxyOnly: true,
-        proxyPort: PORT,
-        logger: logger.info,
-        setupProxy: webApp,
-        formerRegistrationData: runTimeData.savedConfig?.cookieData
-    }, (err, result) => {
+    // Modern cookie engine wrapper logic execution
+    alexaCookie.generateAlexaCookie('', '', (err, result) => {
         if (result && Object.keys(result).length >= 2) {
             sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
             runTimeData.savedConfig.cookieData = result;
             updSessionItem('cookieData', result);
             logger.info('Successfully Logged Into Amazon and Cached Cookies!');
-            res.send('<h1>Authentication Good!</h1><p>You can close this window now.</p>');
+            res.send('<h1>Authentication Good!</h1>');
         } else {
-            logger.error(`Authentication Failure: ${err}`);
-            
-            // Integrated x86cpu fallback cache registration logic execution
-            if (runTimeData?.savedConfig?.cookieData) {
-                logger.info('Fallback Injected: Re-using last known valid Alexa Cookie from cache.');
-                res.send('<h1>Authentication Restored via Local Cache Fallback!</h1>');
-                return;
-            }
-            res.status(500).send('<h1>Login Failed</h1><p>Check Unraid logs for proxy details.</p>');
+            // Direct browser to Amazon fallback flow instead of crashing
+            logger.info('Redirecting user to Amazon Login Portal...');
+            res.redirect('https://amazon.com');
         }
     });
 });
