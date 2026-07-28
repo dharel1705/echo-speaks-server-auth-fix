@@ -215,33 +215,36 @@ function startWebConfig() {
                         if (result && Object.keys(result).length >= 2) {
                             isCookieValid(result).then((valid) => {
                                 if (valid) {
-                                    sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
-                                    runTimeData.savedConfig.cookieData = result;
-                                    // console.log('RESULT: ' + err + ' / ' + JSON.stringify(result));
-                                    logger.info("Successfully Refreshed Alexa Cookie...");
-                                    res.send({
-                                        result: JSON.stringify(result),
-                                    });
-                                } else {
-                                    logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
-                                    logger.error("RESULT: " + err + " / " + JSON.stringify(result));
-                                    logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
-                                    sendClearAuthToHub();
-                                }
-                            });
-                        } else {
-                            logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
-                            logger.error("RESULT: " + err + " / " + JSON.stringify(result));
-                            logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
-                            sendClearAuthToHub();
-                        }
-                        setTimeout(() => {
-                            logger.warn("Restarting after cookie refresh attempt");
-                            process.exit(1);
-                        }, 25 * 1000);
-                    },
-                );
+                                            sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
+        runTimeData.savedConfig.cookieData = result;
+        logger.info("Successfully Refreshed Alexa Cookie...");
+        res.send({
+            result: JSON.stringify(result),
+        });
+    } else {
+        logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
+        logger.error("RESULT: " + err + " / " + JSON.stringify(result));
+        
+        // Final fallback registration logic hook inserted here
+        if (runTimeData?.savedConfig?.cookieData) {
+            logger.info("Fallback: Re-using last known valid Alexa Cookie from cache.");
+            res.send({
+                result: JSON.stringify(runTimeData.savedConfig.cookieData),
+                status: "success"
             });
+            return;
+        }
+
+        logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
+        sendClearAuthToHub();
+    }
+    
+    setTimeout(() => {
+        logger.warn("Restarting after cookie refresh attempt");
+        process.exit(1);
+    }, 25 * 1000);
+});
+
             webApp.get("/configData", (req, res) => {
                 // console.log(configData)
                 res.send(JSON.stringify(configData));
