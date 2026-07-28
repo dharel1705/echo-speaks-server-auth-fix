@@ -54,8 +54,36 @@ function sendCookiesToEndpoint(url, data) {
 loadConfig();
 loadSession();
 
+// RESTORED MAIN PAGE
 webApp.get('/', (req, res) => {
-    res.send('<h1>Echo Speaks Background Proxy Active</h1><p>Automatic refreshing is managed via Hubitat.</p>');
+    res.send('<h1>Echo Speaks Background Proxy Active</h1><p>Automatic refreshing is managed via Hubitat.</p><p><a href="/config">Go to Configuration Panel</a></p>');
+});
+
+// RESTORED /CONFIG VISUAL PAGE THAT HUBITAT EXPECTS
+webApp.get('/config', (req, res) => {
+    const callbackUrl = configData.settings.appCallbackUrl || '';
+    res.send(`
+        <html>
+        <head><title>Echo Speaks Settings</title><style>body{font-family:sans-serif;max-width:500px;margin:auto;padding:30px;} input{width:100%;padding:10px;margin:10px 0;} .btn{background:#FF9900;color:white;border:none;padding:12px;width:100%;cursor:pointer;font-weight:bold;text-decoration:none;display:block;text-align:center;}</style></head>
+        <body>
+            <h2>Echo Speaks Local Configuration</h2>
+            <form action="/saveConfig" method="POST">
+                <label>App Callback URL (From Hubitat):</label>
+                <input type="text" name="appCallbackUrl" value="${callbackUrl}" placeholder="Paste URL here..." required />
+                <button type="submit" class="btn" style="background:#00a8e1;">Save Callback URL</button>
+            </form>
+            <hr/>
+            <a href="/refreshCookie" class="btn">Trigger Amazon Cookie Login / Refresh</a>
+        </body>
+        </html>
+    `);
+});
+
+// RESTORED CONFIG SAVING ENDPOINT
+webApp.post('/saveConfig', urlencodedParser, (req, res) => {
+    configData.settings.appCallbackUrl = req.body.appCallbackUrl;
+    fs.writeFileSync(configFilePath, JSON.stringify(configData, null, 2), 'utf8');
+    res.redirect('/config');
 });
 
 // AUTOMATED REFRESH ENGINE WITH BROWSER EMULATION
@@ -64,7 +92,6 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
 
     const refreshOptions = {
         formerRegistrationData: runTimeData.savedConfig?.cookieData,
-        // Emulate a standard desktop browser environment to satisfy Amazon's security
         setupProxy: true,
         useBridge: true,
         puppeteerOptions: {
@@ -79,17 +106,16 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
             runTimeData.savedConfig.cookieData = result;
             updSessionItem('cookieData', result);
             logger.info('SUCCESS: Background cookies silently updated and saved!');
-            res.send({ status: 'success', message: 'Automated background refresh successful.' });
+            res.send('<h1>Authentication Good!</h1><p>Your local proxy has successfully stored your tokens and sent them to Hubitat.</p>');
         } else {
             logger.error(`Automated refresh failed: ${err || 'Amazon rejected credentials'}`);
             
-            // X86CPU Cache Fallback protection activation loop
             if (runTimeData?.savedConfig?.cookieData) {
                 logger.warn('Engaging x86cpu fallback: Providing previously cached session state.');
-                res.send({ result: JSON.stringify(runTimeData.savedConfig.cookieData), status: 'success' });
+                res.send('<h1>Authentication Kept Alive via Fallback Cache!</h1>');
                 return;
             }
-            res.status(500).send({ status: 'failed', error: 'Automated refresh failed completely.' });
+            res.status(500).send('<h1>Refresh Failed</h1><p>Could not contact Amazon. Check Unraid logs for details.</p>');
         }
     });
 });
