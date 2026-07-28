@@ -107,7 +107,7 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
     // If baseline tokens don't exist yet, build baseline profile with modern engine
     if (!runTimeData?.savedConfig?.cookieData) {
         logger.info('No cached baseline profile found. Generating fresh session cookies via Chromium engine...');
-        alexaCookie.generateAlexaCookie('', '', (err, result) => {
+            alexaCookie.generateAlexaCookie('', { amazonPage: 'amazon.com' }, (err, result) => {
             if (result && Object.keys(result).length >= 2) {
                 sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
                 runTimeData.savedConfig.cookieData = result;
