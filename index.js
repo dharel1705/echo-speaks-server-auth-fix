@@ -215,36 +215,38 @@ function startWebConfig() {
                         if (result && Object.keys(result).length >= 2) {
                             isCookieValid(result).then((valid) => {
                                 if (valid) {
-                                            sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
-        runTimeData.savedConfig.cookieData = result;
-        logger.info("Successfully Refreshed Alexa Cookie...");
-        res.send({
-            result: JSON.stringify(result),
-        });
-    } else {
-        logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
-        logger.error("RESULT: " + err + " / " + JSON.stringify(result));
+                                     sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
+                                    runTimeData.savedConfig.cookieData = result;
+                                    logger.info("Successfully Refreshed Alexa Cookie...");
+                                    res.send({
+                                        result: JSON.stringify(result),
+                                    });
+                                } else {
+                                    logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
+                                    logger.error("RESULT: " + err + " / " + JSON.stringify(result));
         
-        // Final fallback registration logic hook inserted here
-        if (runTimeData?.savedConfig?.cookieData) {
-            logger.info("Fallback: Re-using last known valid Alexa Cookie from cache.");
-            res.send({
-                result: JSON.stringify(runTimeData.savedConfig.cookieData),
-                status: "success"
-            });
-            return;
-        }
+                                    // --- START OF X86CPU FALLBACK INJECTION ---
+                                    if (runTimeData?.savedConfig?.cookieData) {
+                                        logger.info("Fallback: Re-using last known valid Alexa Cookie from cache.");
+                                        res.send({
+                                            result: JSON.stringify(runTimeData.savedConfig.cookieData),
+                                            status: "success"
+                                        });
+                                        return;
+                                    }
+                                    // --- END OF X86CPU FALLBACK INJECTION ---
 
-        logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
-        sendClearAuthToHub();
-    }
+                                    logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
+                                    sendClearAuthToHub();
+                                }
     
-    setTimeout(() => {
-        logger.warn("Restarting after cookie refresh attempt");
-        process.exit(1);
-    }, 25 * 1000);
-});
-
+                                setTimeout(() => {
+                                    logger.warn("Restarting after cookie refresh attempt");
+                                    process.exit(1);
+                                }, 25 * 1000);
+                            }); // <-- Closes isCookieValid
+                }); // <-- Closes alexaCookie.refreshAlexaCookie
+            }); // <-- Closes webApp.get("/refreshCookie")
             webApp.get("/configData", (req, res) => {
                 // console.log(configData)
                 res.send(JSON.stringify(configData));
@@ -371,6 +373,44 @@ function startWebServer(checkForCookie = false) {
             configFile.save();
             logger.silly("Echo Speaks Alexa API is Actively Running at (IP: " + configData.settings.ipAddress + " | Port: " + configData.settings.serverPort + ") | ProcessId: " + process.pid);
             runTimeData.guardData = await getGuardDataSupport();
+            if (!runTimeData.scheduledUpdatesActive) {
+                // Heroku dynos cycle every ~24h wiping the local filesystem, so refresh
+                // must fire well within that window to keep the hub's copy of the tokens
+                // fresh before the dyno restarts and needs to re-fetch them from the hub.
+                // Locally, 24 hours is plenty since session.json survives restarts.
+                const REFRESH_INTERVAL_MS = configData.settings.useHeroku === true
+                    ? 6 * 60 * 60 * 1000   // 6 hours on Heroku (safe margin under the 24h dyno cycle)
+                    : 24 * 60 * 60 * 1000; // 24 hours locally
+                logger.info(`Starting scheduled cookie refresh (every ${configData.settings.useHeroku === true ? "6 hours (Heroku)" : "24 hours (local)"})...`);
+                runTimeData.cookieRefreshInterval = setInterval(() => {
+                    logger.info("Scheduled cookie refresh triggered...");
+                    if (!runTimeData.savedConfig || !runTimeData.savedConfig.cookieData) {
+                        logger.warn("Scheduled refresh skipped: no cookieData in memory.");
+                        return;
+                    }
+                    alexaCookie.refreshAlexaCookie(
+                        { formerRegistrationData: runTimeData.savedConfig.cookieData },
+                        (err, result) => {
+                            if (result && Object.keys(result).length >= 2) {
+                                isCookieValid(result).then((valid) => {
+                                    if (valid) {
+                                        runTimeData.savedConfig.cookieData = result;
+                                        updSessionItem("cookieData", result);
+                                        sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
+                                        logger.info("Scheduled cookie refresh completed successfully.");
+                                    } else {
+                                        logger.error("Scheduled refresh: refreshed cookie failed validation. Clearing auth.");
+                                        sendClearAuthToHub();
+                                    }
+                                });
+                            } else {
+                                logger.error("Scheduled refresh: failed to obtain new tokens. Error: " + (err && err.message));
+                            }
+                        }
+                    );
+                }, REFRESH_INTERVAL_MS);
+                runTimeData.scheduledUpdatesActive = true;
+            }
         }
     });
 }
@@ -556,7 +596,7 @@ function alexaLogin(username, password, alexaOptions, callback) {
             updSessionItem("cookieData", remoteCookies.cookieData);
             config.cookieData = remoteCookies.cookieData;
             callback(null, `Login Successful (Retreived from ${configData.settings.hubPlatform})`, config);
-        } else if (sessionData && sessionData.cookieData && Object.keys(sessionData.cookieData) >= 2) {
+        } else if (sessionData && sessionData.cookieData && Object.keys(sessionData.cookieData).length >= 2) {
             config.cookieData = sessionData.cookieData || {};
             callback(null, "Login Successful (Stored Session)", config);
         } else {
@@ -877,7 +917,8 @@ process.on(
 function exitHandler(options, exitCode) {
     alexaCookie.stopProxyServer();
     if (runTimeData.scheduledUpdatesActive) {
-        // stopScheduledDataUpdates();
+        if (runTimeData.cookieRefreshInterval) clearInterval(runTimeData.cookieRefreshInterval);
+        runTimeData.scheduledUpdatesActive = false;
     }
     if (options.cleanup) {
         console.log("clean");
@@ -894,3 +935,11 @@ function exitHandler(options, exitCode) {
         process.exit(1);
     }, 2 * 1000);
 }
+
+Adobe Acrobat
+
+
+Summarize this
+
+
+Ask AI Assistant
