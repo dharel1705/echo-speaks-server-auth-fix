@@ -205,48 +205,50 @@ function startWebConfig() {
                 });
             });
             webApp.get("/refreshCookie", urlencodedParser, (req, res) => {
-                logger.verbose("refreshCookie request received");
-                logger.debug(`cookieData: ${runTimeData.savedConfig || null}`);
-                alexaCookie.refreshAlexaCookie(
-                    {
-                        formerRegistrationData: runTimeData.savedConfig.cookieData,
-                    },
-                    (err, result) => {
-                        if (result && Object.keys(result).length >= 2) {
-                            isCookieValid(result).then((valid) => {
-                                if (valid) {
-                                     sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
-                                    runTimeData.savedConfig.cookieData = result;
-                                    logger.info("Successfully Refreshed Alexa Cookie...");
-                                    res.send({
-                                        result: JSON.stringify(result),
-                                    });
-                                } else {
-                                    logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
-                                    logger.error("RESULT: " + err + " / " + JSON.stringify(result));
-        
-                                    // --- START OF X86CPU FALLBACK INJECTION ---
-                                    if (runTimeData?.savedConfig?.cookieData) {
-                                        logger.info("Fallback: Re-using last known valid Alexa Cookie from cache.");
-                                        res.send({
-                                            result: JSON.stringify(runTimeData.savedConfig.cookieData),
-                                            status: "success"
-                                        });
-                                        return;
-                                    }
-                                    // --- END OF X86CPU FALLBACK INJECTION ---
+    logger.verbose("refreshCookie request received");
+    logger.debug(`cookieData: ${runTimeData.savedConfig || null}`);
+    alexaCookie.refreshAlexaCookie(
+        {
+            formerRegistrationData: runTimeData.savedConfig.cookieData,
+        },
+        (err, result) => {
+            if (result && Object.keys(result).length >= 2) {
+                isCookieValid(result).then((valid) => {
+                    if (valid) {
+                        sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
+                        runTimeData.savedConfig.cookieData = result;
+                        logger.info("Successfully Refreshed Alexa Cookie...");
+                        res.send({
+                            result: JSON.stringify(result),
+                        });
+                    } else {
+                        logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
+                        logger.error("RESULT: " + err + " / " + JSON.stringify(result));
+                        
+                        // --- START OF X86CPU FALLBACK INJECTION ---
+                        if (runTimeData?.savedConfig?.cookieData) {
+                            logger.info("Fallback: Re-using last known valid Alexa Cookie from cache.");
+                            res.send({
+                                result: JSON.stringify(runTimeData.savedConfig.cookieData),
+                                status: "success"
+                            });
+                            return;
+                        }
+                        // --- END OF X86CPU FALLBACK INJECTION ---
 
-                                    logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
-                                    sendClearAuthToHub();
-                                }
-    
-                                setTimeout(() => {
-                                    logger.warn("Restarting after cookie refresh attempt");
-                                    process.exit(1);
-                                }, 25 * 1000);
-                            }); // <-- Closes isCookieValid
-                }); // <-- Closes alexaCookie.refreshAlexaCookie
-            }); // <-- Closes webApp.get("/refreshCookie")
+                        logger.warn(`** WARNING: We are clearing the Cookie from ${configData.settings.hubPlatform} to prevent further requests and server load... **`);
+                        sendClearAuthToHub();
+                    }
+                    setTimeout(() => {
+                        logger.warn("Restarting after cookie refresh attempt");
+                        process.exit(1);
+                    }, 25 * 1000);
+                });
+            }
+        }
+    );
+});
+            
             webApp.get("/configData", (req, res) => {
                 // console.log(configData)
                 res.send(JSON.stringify(configData));
