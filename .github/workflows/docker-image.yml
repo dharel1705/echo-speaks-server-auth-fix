@@ -20,4 +20,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+          tags: ghcr.io/your_github_username/echo-speaks-server-auth-fix:latest
+
