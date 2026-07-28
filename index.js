@@ -80,27 +80,19 @@ webApp.get('/config', (req, res) => {
 });
 
 // RESTORED CONFIG SAVING ENDPOINT
-webApp.post('/saveConfig', urlencodedParser, (req, res) => {
-    configData.settings.appCallbackUrl = req.body.appCallbackUrl;
-    fs.writeFileSync(configFilePath, JSON.stringify(configData, null, 2), 'utf8');
-    res.redirect('/config');
-});
-
-// AUTOMATED REFRESH ENGINE WITH BROWSER EMULATION
+// FIXED INITIAL REGISTRATION ROUTE
 webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
-    logger.info('Automated background token refresh requested...');
+    logger.info('Initializing manual login proxy stream...');
 
-    const refreshOptions = {
-        formerRegistrationData: runTimeData.savedConfig?.cookieData,
+    const loginOptions = {
         setupProxy: true,
-        useBridge: true,
-        puppeteerOptions: {
-            executablePath: '/usr/bin/chromium-browser',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        }
+        proxyPort: PORT,
+        proxyOwnIp: '192.168.1.48', // Your Unraid local IP
+        formerRegistrationData: runTimeData.savedConfig?.cookieData
     };
 
-    alexaCookie.refreshAlexaCookie(refreshOptions, (err, result) => {
+    // Use standard device registration to capture baseline credentials
+    alexaCookie.expressLogin(webApp, loginOptions, (err, result) => {
         if (result && Object.keys(result).length >= 2) {
             sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
             runTimeData.savedConfig.cookieData = result;
@@ -119,6 +111,7 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
         }
     });
 });
+
 
 webApp.get('/configData', (req, res) => { res.send(configData); });
 
