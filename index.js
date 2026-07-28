@@ -21,7 +21,10 @@ const logger = winston.createLogger({
 
 const webApp = express();
 const urlencodedParser = bodyParser.urlencoded({ extended: false });
+
+// Apply body parsing configurations across all incoming network requests
 webApp.use(bodyParser.json());
+webApp.use(bodyParser.urlencoded({ extended: true }));
 
 let configData = { settings: {} };
 let runTimeData = { savedConfig: { cookieData: null } };
@@ -54,12 +57,12 @@ function sendCookiesToEndpoint(url, data) {
 loadConfig();
 loadSession();
 
-// RESTORED MAIN PAGE
+// ROOT LANDING REDIRECT
 webApp.get('/', (req, res) => {
     res.send('<h1>Echo Speaks Background Proxy Active</h1><p>Automatic refreshing is managed via Hubitat.</p><p><a href="/config">Go to Configuration Panel</a></p>');
 });
 
-// RESTORED /CONFIG VISUAL PAGE THAT HUBITAT EXPECTS
+// HUBITAT APP PORTAL ROUTE
 webApp.get('/config', (req, res) => {
     const callbackUrl = configData.settings.appCallbackUrl || '';
     res.send(`
@@ -79,39 +82,72 @@ webApp.get('/config', (req, res) => {
     `);
 });
 
-// RESTORED CONFIG SAVING ENDPOINT
-// FIXED INITIAL REGISTRATION ROUTE
+// FORM PARSING DATA ROUTE
+webApp.post('/saveConfig', urlencodedParser, (req, res) => {
+    if (req.body && req.body.appCallbackUrl) {
+        configData.settings.appCallbackUrl = req.body.appCallbackUrl;
+        fs.writeFileSync(configFilePath, JSON.stringify(configData, null, 2), 'utf8');
+        logger.info(`Saved App Callback URL: ${req.body.appCallbackUrl}`);
+        res.redirect('/config');
+    } else {
+        res.status(400).send('<h1>Error saving configuration</h1><p>Callback URL parameter was missing.</p>');
+    }
+});
+
+// DUAL COMPATIBILITY LOGIN / REFRESH INTERCEPTOR ENGINE
 webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
-    logger.info('Initializing manual login proxy stream...');
+    logger.info('Authentication sequence initiated...');
 
     const loginOptions = {
         setupProxy: true,
         proxyPort: PORT,
-        proxyOwnIp: '192.168.1.48', // Your Unraid local IP
-        formerRegistrationData: runTimeData.savedConfig?.cookieData
+        proxyOwnIp: '192.168.1.48',
+        formerRegistrationData: runTimeData.savedConfig?.cookieData,
+        puppeteerOptions: {
+            executablePath: '/usr/bin/chromium-browser',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        }
     };
 
-    // Use standard device registration to capture baseline credentials
-    alexaCookie.expressLogin(webApp, loginOptions, (err, result) => {
-        if (result && Object.keys(result).length >= 2) {
-            sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
-            runTimeData.savedConfig.cookieData = result;
-            updSessionItem('cookieData', result);
-            logger.info('SUCCESS: Background cookies silently updated and saved!');
-            res.send('<h1>Authentication Good!</h1><p>Your local proxy has successfully stored your tokens and sent them to Hubitat.</p>');
-        } else {
-            logger.error(`Automated refresh failed: ${err || 'Amazon rejected credentials'}`);
-            
-            if (runTimeData?.savedConfig?.cookieData) {
-                logger.warn('Engaging x86cpu fallback: Providing previously cached session state.');
-                res.send('<h1>Authentication Kept Alive via Fallback Cache!</h1>');
-                return;
+    // If baseline tokens don't exist yet, launch explicit proxy stream interception
+    if (!runTimeData?.savedConfig?.cookieData) {
+        logger.info('No cached baseline profile found. Booting manual proxy login listener...');
+        alexaCookie.expressLogin(webApp, loginOptions, (err, result) => {
+            if (result && Object.keys(result).length >= 2) {
+                sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
+                runTimeData.savedConfig.cookieData = result;
+                updSessionItem('cookieData', result);
+                logger.info('SUCCESS: Manual login tokens trapped and written to local database cache!');
+                res.send('<h1>Authentication Good!</h1><p>Your local proxy has successfully stored your tokens and sent them to Hubitat.</p>');
+            } else {
+                logger.error(`Manual login proxy failed: ${err || 'Process timed out'}`);
+                res.status(500).send('<h1>Login Failed</h1><p>Check Unraid system log panel for diagnostic details.</p>');
             }
-            res.status(500).send('<h1>Refresh Failed</h1><p>Could not contact Amazon. Check Unraid logs for details.</p>');
-        }
-    });
+        });
+    } else {
+        // If baseline tokens exist, run completely hands-free background emulation loop
+        logger.info('Baseline profile exists. Executing automated background browser driver refresh...');
+        alexaCookie.refreshAlexaCookie(loginOptions, (err, result) => {
+            if (result && Object.keys(result).length >= 2) {
+                sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
+                runTimeData.savedConfig.cookieData = result;
+                updSessionItem('cookieData', result);
+                logger.info('SUCCESS: Background cookies silently updated and saved!');
+                res.send('<h1>Authentication Good!</h1><p>Automated background refresh successful.</p>');
+            } else {
+                logger.error(`Automated refresh failed: ${err || 'Amazon rejected authentication refresh token'}`);
+                
+                // Integrated x86cpu fallback backup cache validation loop
+                if (runTimeData?.savedConfig?.cookieData) {
+                    logger.warn('Engaging x86cpu fallback: Providing previously cached session state.');
+                    res.send('<h1>Authentication Kept Alive via Fallback Cache!</h1>');
+                    return;
+                }
+                res.status(500).send('<h1>Refresh Failed</h1><p>Could not contact Amazon. Check Unraid logs for details.</p>');
+            }
+        });
+    }
 });
-
 
 webApp.get('/configData', (req, res) => { res.send(configData); });
 
