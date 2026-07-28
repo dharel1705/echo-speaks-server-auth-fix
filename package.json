@@ -1,61 +1,16 @@
 {
-    "name": "echo-speaks-server",
-    "version": "2.8.0",
-    "author": "Anthony Santilli",
-    "contributors": [
-        {
-            "name": "Apollon77",
-            "email": "ingo@fischer-ka.de"
-        }
-    ],
-    "engines": {
-        "node": ">=12.9.1"
-    },
-    "dependencies": {
-        "@types/underscore": "^1.11.4",
-        "body-parser": "^1.20.1",
-        "dateformat": "^4.6.3",
-        "edit-json-file": "^1.7.0",
-        "express": "^4.18.2",
-        "express-remove-route": "1.0.0",
-        "cookie": "^0.4.2",
-        "find-free-port": "^2.0.0",
-        "getos": "^3.2.1",
-        "http-proxy-middleware": "^2.0.6",
-        "http-proxy-response-rewrite": "^0.0.1",
-        "https": "^1.0.0",
-        "moment": "^2.29.4",
-        "node-datetime": "^2.1.2",
-        "os": "^0.1.2",
-        "extend": "^3.0.2",
-        "querystring": "^0.2.1",
-        "request": "^2.88.2",
-        "request-promise": "^4.2.6",
-        "underscore": "^1.13.6",
-        "winston": "^3.8.2",
-        "winston-daily-rotate-file": "^4.7.1",
-        "compare-versions": "^3.6.0"
-    },
-    "devDependencies": {
-        "eslint": "^8.28.0",
-        "eslint-config-prettier": "^8.5.0",
-        "eslint-plugin-prettier": "^4.2.1",
-        "lint-staged": "^13.0.4",
-        "prettier": "^2.8.0",
-        "@alcalzone/release-script": "^1.10.1"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/tonesto7/echo-speaks-server.git"
-    },
-    "bugs": {
-        "url": "https://github.com/tonesto7/echo-speaks-server/issues"
-    },
-    "scripts": {
-        "start": "node index.js"
-    },
-    "main": "./index.js",
-    "readmeFilename": "readme.md",
-    "license": "MIT",
-    "private": true
+  "name": "echo-speaks-server",
+  "version": "2.5.0",
+  "description": "Echo Speaks Auth Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "alexa-cookie2": "^3.4.1",
+    "axios": "^1.6.0",
+    "body-parser": "^1.20.2",
+    "express": "^4.18.2",
+    "winston": "^3.11.0"
+  }
 }
