@@ -22,7 +22,6 @@ const logger = winston.createLogger({
 const webApp = express();
 const urlencodedParser = bodyParser.urlencoded({ extended: false });
 
-// Apply body parsing configurations across all incoming network requests
 webApp.use(bodyParser.json());
 webApp.use(bodyParser.urlencoded({ extended: true }));
 
@@ -57,12 +56,10 @@ function sendCookiesToEndpoint(url, data) {
 loadConfig();
 loadSession();
 
-// ROOT LANDING REDIRECT
 webApp.get('/', (req, res) => {
     res.send('<h1>Echo Speaks Background Proxy Active</h1><p>Automatic refreshing is managed via Hubitat.</p><p><a href="/config">Go to Configuration Panel</a></p>');
 });
 
-// HUBITAT APP PORTAL ROUTE
 webApp.get('/config', (req, res) => {
     const callbackUrl = configData.settings.appCallbackUrl || '';
     res.send(`
@@ -82,7 +79,6 @@ webApp.get('/config', (req, res) => {
     `);
 });
 
-// FORM PARSING DATA ROUTE
 webApp.post('/saveConfig', urlencodedParser, (req, res) => {
     if (req.body && req.body.appCallbackUrl) {
         configData.settings.appCallbackUrl = req.body.appCallbackUrl;
@@ -94,14 +90,13 @@ webApp.post('/saveConfig', urlencodedParser, (req, res) => {
     }
 });
 
-// DUAL COMPATIBILITY LOGIN / REFRESH INTERCEPTOR ENGINE
+// STABLE REFRESH ENGINE WITHOUT DEPRECATED ROUTINES
 webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
     logger.info('Authentication sequence initiated...');
 
-    const loginOptions = {
+    const connectionOptions = {
         setupProxy: true,
-        proxyPort: PORT,
-        proxyOwnIp: '192.168.1.48',
+        useBridge: true,
         formerRegistrationData: runTimeData.savedConfig?.cookieData,
         puppeteerOptions: {
             executablePath: '/usr/bin/chromium-browser',
@@ -109,25 +104,25 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
         }
     };
 
-    // If baseline tokens don't exist yet, launch explicit proxy stream interception
+    // If baseline tokens don't exist yet, build baseline profile with modern engine
     if (!runTimeData?.savedConfig?.cookieData) {
-        logger.info('No cached baseline profile found. Booting manual proxy login listener...');
-        alexaCookie.expressLogin(webApp, loginOptions, (err, result) => {
+        logger.info('No cached baseline profile found. Generating fresh session cookies via Chromium engine...');
+        alexaCookie.generateAlexaCookie('', '', (err, result) => {
             if (result && Object.keys(result).length >= 2) {
                 sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
                 runTimeData.savedConfig.cookieData = result;
                 updSessionItem('cookieData', result);
-                logger.info('SUCCESS: Manual login tokens trapped and written to local database cache!');
+                logger.info('SUCCESS: Fresh baseline session cookies saved to local cache!');
                 res.send('<h1>Authentication Good!</h1><p>Your local proxy has successfully stored your tokens and sent them to Hubitat.</p>');
             } else {
-                logger.error(`Manual login proxy failed: ${err || 'Process timed out'}`);
-                res.status(500).send('<h1>Login Failed</h1><p>Check Unraid system log panel for diagnostic details.</p>');
+                logger.error(`Initial cookie generation failed: ${err || 'Process timed out'}`);
+                res.status(500).send('<h1>Login Failed</h1><p>Check Unraid system log panel for details. You may need to authenticate on Amazon via browser first.</p>');
             }
         });
     } else {
         // If baseline tokens exist, run completely hands-free background emulation loop
         logger.info('Baseline profile exists. Executing automated background browser driver refresh...');
-        alexaCookie.refreshAlexaCookie(loginOptions, (err, result) => {
+        alexaCookie.refreshAlexaCookie(connectionOptions, (err, result) => {
             if (result && Object.keys(result).length >= 2) {
                 sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
                 runTimeData.savedConfig.cookieData = result;
