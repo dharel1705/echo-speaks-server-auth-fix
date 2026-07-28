@@ -107,7 +107,15 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
     // If baseline tokens don't exist yet, build baseline profile with modern engine
     if (!runTimeData?.savedConfig?.cookieData) {
         logger.info('No cached baseline profile found. Generating fresh session cookies via Chromium engine...');
-            alexaCookie.generateAlexaCookie('', { amazonPage: 'amazon.com' }, (err, result) => {
+        // Configure explicit proxy network mapping criteria
+        const registrationConfig = {
+            amazonPage: 'amazon.com',
+            proxyOwnIp: '192.168.1.48',
+            proxyPort: PORT,
+            setupProxy: true
+        };
+
+        alexaCookie.generateAlexaCookie('', registrationConfig, (err, result) => {
             if (result && Object.keys(result).length >= 2) {
                 sendCookiesToEndpoint(configData.settings.appCallbackUrl, result);
                 runTimeData.savedConfig.cookieData = result;
@@ -116,9 +124,12 @@ webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
                 res.send('<h1>Authentication Good!</h1><p>Your local proxy has successfully stored your tokens and sent them to Hubitat.</p>');
             } else {
                 logger.error(`Initial cookie generation failed: ${err || 'Process timed out'}`);
-                res.status(500).send('<h1>Login Failed</h1><p>Check Unraid system log panel for details. You may need to authenticate on Amazon via browser first.</p>');
+                
+                // Route user to the explicit local address instead of an undefined link
+                res.send(`<h1>Action Required</h1><p>Amazon requires interactive verification. Please open <a href="http://192.168.1.48:${PORT}/" target="_blank">http://192.168.1.48:${PORT}/</a> in a new tab to complete sign-in.</p>`);
             }
         });
+
     } else {
         // If baseline tokens exist, run completely hands-free background emulation loop
         logger.info('Baseline profile exists. Executing automated background browser driver refresh...');
