@@ -1,17 +1,17 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const alexaCookie = require("alexa-cookie2");
-const fs = require("fs");
-const path = require("path");
-const winston = require("winston");
-const axios = require("axios");
+const express = require('express');
+const alexaCookie = require('alexa-cookie2');
+const bodyParser = require('body-parser');
+const fs = require('fs');
+const path = require('path');
+const winston = require('winston');
+const axios = require('axios');
 
 const PORT = process.env.PORT || 8580;
-const configFilePath = path.join(__dirname, "config.json");
-const sessionFilePath = path.join(__dirname, "session.json");
+const configFilePath = path.join(__dirname, 'config.json');
+const sessionFilePath = path.join(__dirname, 'session.json');
 
 const logger = winston.createLogger({
-    level: process.env.LOG_LEVEL || "info",
+    level: process.env.LOG_LEVEL || 'info',
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.printf(({ timestamp, level, message }) => `[${timestamp}] [${level.toUpperCase()}]: ${message}`)
@@ -29,9 +29,9 @@ let runTimeData = { savedConfig: { cookieData: null } };
 function loadConfig() {
     if (fs.existsSync(configFilePath)) {
         try {
-            configData = JSON.parse(fs.readFileSync(configFilePath, "utf8"));
+            configData = JSON.parse(fs.readFileSync(configFilePath, 'utf8'));
         } catch (e) {
-            logger.error("Failed to parse config file");
+            logger.error('Failed to parse config file');
         }
     }
 }
@@ -39,9 +39,9 @@ function loadConfig() {
 function loadSession() {
     if (fs.existsSync(sessionFilePath)) {
         try {
-            runTimeData = JSON.parse(fs.readFileSync(sessionFilePath, "utf8"));
+            runTimeData = JSON.parse(fs.readFileSync(sessionFilePath, 'utf8'));
         } catch (e) {
-            logger.error("Failed to parse session file");
+            logger.error('Failed to parse session file');
         }
     }
 }
@@ -49,7 +49,7 @@ function loadSession() {
 function updSessionItem(key, val) {
     if (!runTimeData.savedConfig) runTimeData.savedConfig = {};
     runTimeData.savedConfig[key] = val;
-    fs.writeFileSync(sessionFilePath, JSON.stringify(runTimeData, null, 2), "utf8");
+    fs.writeFileSync(sessionFilePath, JSON.stringify(runTimeData, null, 2), 'utf8');
 }
 
 function sendCookiesToEndpoint(url, data) {
@@ -58,18 +58,37 @@ function sendCookiesToEndpoint(url, data) {
 }
 
 function sendClearAuthToHub() {
-    logger.warn("Clearing hub authorization credentials.");
+    if (configData.settings.appCallbackUrl) {
+        const clearUrl = String(configData.settings.appCallbackUrl).replace('/receiveData?', '/clearAuth?');
+        axios.post(clearUrl, { status: 'cleared' }).catch(err => logger.error(`Error sending clearAuth: ${err.message}`));
+    }
 }
 
 function isCookieValid(cookie) {
-    return Promise.resolve(true);
+    return new Promise((resolve) => {
+        alexaCookie.checkCookie(cookie, (err, res) => {
+            if (err || !res) {
+                resolve(false);
+            } else {
+                resolve(true);
+            }
+        });
+    });
+}
+
+function initAlexaCookie() {
+    if (!runTimeData.savedConfig || !runTimeData.savedConfig.cookieData) {
+        logger.warn('No cookie data found to initialize proxy listener.');
+        return;
+    }
+    logger.info('Initializing Proxy Cookie Engine...');
 }
 
 loadConfig();
 loadSession();
 
-webApp.get("/refreshCookie", urlencodedParser, (req, res) => {
-    logger.verbose("refreshCookie request received");
+webApp.get('/refreshCookie', urlencodedParser, (req, res) => {
+    logger.verbose('refreshCookie request received');
     logger.debug(`cookieData: ${runTimeData.savedConfig || null}`);
     alexaCookie.refreshAlexaCookie(
         {
@@ -79,21 +98,27 @@ webApp.get("/refreshCookie", urlencodedParser, (req, res) => {
             if (result && Object.keys(result).length >= 2) {
                 isCookieValid(result).then((valid) => {
                     if (valid) {
-                        sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace("/receiveData?", "/cookie?") : null, result);
+                        sendCookiesToEndpoint(configData.settings.appCallbackUrl ? String(configData.settings.appCallbackUrl).replace('/receiveData?', '/cookie?') : null, result);
                         runTimeData.savedConfig.cookieData = result;
-                        logger.info("Successfully Refreshed Alexa Cookie...");
+                        updSessionItem('cookieData', result);
+                        logger.info('Successfully Refreshed Alexa Cookie...');
                         res.send({
                             result: JSON.stringify(result),
+                            status: 'success'
                         });
+                        if (configData.settings.useLocalProxy === true) {
+                            initAlexaCookie();
+                        }
                     } else {
                         logger.error(`** ERROR: Unsuccessfully refreshed Alexa Cookie it was found to be invalid/expired... **`);
-                        logger.error("RESULT: " + err + " / " + JSON.stringify(result));
+                        logger.error('RESULT: ' + err + ' / ' + JSON.stringify(result));
                         
+                        // Integrated x86cpu fallback cache registration logic hook
                         if (runTimeData?.savedConfig?.cookieData) {
-                            logger.info("Fallback: Re-using last known valid Alexa Cookie from cache.");
+                            logger.info('Fallback: Re-using last known valid Alexa Cookie from cache.');
                             res.send({
                                 result: JSON.stringify(runTimeData.savedConfig.cookieData),
-                                status: "success"
+                                status: 'success'
                             });
                             return;
                         }
@@ -102,7 +127,7 @@ webApp.get("/refreshCookie", urlencodedParser, (req, res) => {
                         sendClearAuthToHub();
                     }
                     setTimeout(() => {
-                        logger.warn("Restarting after cookie refresh attempt");
+                        logger.warn('Restarting after cookie refresh attempt');
                         process.exit(1);
                     }, 25 * 1000);
                 });
@@ -111,10 +136,19 @@ webApp.get("/refreshCookie", urlencodedParser, (req, res) => {
     );
 });
 
-webApp.get("/configData", (req, res) => {
+webApp.get('/configData', (req, res) => {
     res.send(configData);
+});
+
+webApp.post('/saveConfig', (req, res) => {
+    configData = req.body;
+    fs.writeFileSync(configFilePath, JSON.stringify(configData, null, 2), 'utf8');
+    res.send({ status: 'saved' });
 });
 
 webApp.listen(PORT, () => {
     logger.info(`Echo Speaks Auth Server running on port ${PORT}`);
+    if (runTimeData.savedConfig && runTimeData.savedConfig.cookieData) {
+        initAlexaCookie();
+    }
 });
