@@ -1,7 +1,8 @@
 name: Build Patched Echo Speaks
 on:
   push:
-    branches: [ echo-speaks-server-auth-fix ]
+    branches: [ master ]
+  workflow_dispatch:      # <-- This forces a manual play button to appear
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,4 +21,3 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:latest
-          
